@@ -18,7 +18,7 @@ const $=id=>document.getElementById(id),fields=['mode','name','idea','style','ra
 (()=>{'use strict';
 const el=id=>document.getElementById(id), enc=new TextEncoder();
 let clips=new Map(), captions=new Map(), music=null, refs=[];
-const safe=(name)=>String(name||'file').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,100);
+const safe=(name)=>String(name||'file').replace(/[^a-zA-Z0-9\u3400-\u9fff._ -]/g,'_').slice(0,100);
 const pad=n=>String(n).padStart(2,'0');
 const time=sec=>{const ms=Math.round(sec*1000);return pad(Math.floor(ms/3600000))+':'+pad(Math.floor(ms/60000)%60)+':'+pad(Math.floor(ms/1000)%60)+','+String(ms%1000).padStart(3,'0')};
 function currentShots(){return Array.isArray(shots)?shots:[]}
@@ -32,7 +32,48 @@ function crc32(data){let c=0xffffffff;for(const b of data)c=crcTable[(c^b)&255]^
 function u16(d,o,v){d.setUint16(o,v,true)}function u32(d,o,v){d.setUint32(o,v,true)}
 async function zip(files){const chunks=[],central=[];let offset=0;for(const [path,blob] of files){const name=enc.encode(path),bytes=new Uint8Array(await blob.arrayBuffer()),crc=crc32(bytes),header=new Uint8Array(30+name.length),h=new DataView(header.buffer);u32(h,0,0x04034b50);u16(h,4,20);u16(h,6,0x800);u16(h,8,0);u32(h,14,crc);u32(h,18,bytes.length);u32(h,22,bytes.length);u16(h,26,name.length);header.set(name,30);chunks.push(header,bytes);const cent=new Uint8Array(46+name.length),c=new DataView(cent.buffer);u32(c,0,0x02014b50);u16(c,4,20);u16(c,6,20);u16(c,8,0x800);u32(c,16,crc);u32(c,20,bytes.length);u32(c,24,bytes.length);u16(c,28,name.length);u32(c,42,offset);cent.set(name,46);central.push(cent);offset+=header.length+bytes.length}const centralLength=central.reduce((n,b)=>n+b.length,0),end=new Uint8Array(22),e=new DataView(end.buffer);u32(e,0,0x06054b50);u16(e,8,files.length);u16(e,10,files.length);u32(e,12,centralLength);u32(e,16,offset);return new Blob([...chunks,...central,end],{type:'application/zip'})}
 const txt=(s)=>new Blob([s],{type:'text/plain;charset=utf-8'});
-el('exportCapcut').onclick=async()=>{const btn=el('exportCapcut');try{const ss=currentShots();if(!ss.length){el('capcutStatus').textContent='請先建立至少一個分鏡';return}const selected=ss.map((s,i)=>({s,i,f:clips.get(i)}));if(!selected.some(x=>x.f)){el('capcutStatus').textContent='請先為至少一個分鏡加入影片';return}btn.disabled=true;el('capcutStatus').textContent='正在整理 ZIP，較大的影片需要一些時間…';const files=[],rows=['shot,planned_start_seconds,planned_duration_seconds,video_file,camera,description'],srt=[];let start=0,n=0;for(const {s,i,f} of selected){const stem='shot_'+pad(i+1),path=f?'videos/'+stem+'.'+safe((f.name.split('.').pop()||'mp4').toLowerCase()):'';if(f)files.push([path,f]);rows.push([i+1,start,s.seconds,path,s.camera,s.text].map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','));const cap=captions.get(i)||'';if(cap){srt.push(String(++n)+'\n'+time(start)+' --> '+time(start+Number(s.seconds))+'\n'+cap+'\n'}start+=Number(s.seconds)||0}files.push(['shot_list.csv',txt('\ufeff'+rows.join('\r\n'))]);files.push(['subtitles.srt',txt('\ufeff'+srt.join('\n'))]);files.push(['characters.txt',txt((characters||[]).map((v,i)=>'角色 '+(i+1)+'：'+v).join('\n\n'))]);files.push(['script.txt',txt(el('script').value||'')]);files.push(['README_請先閱讀.txt',txt('AI-Film-Studio → Windows CapCut 素材包\n\n1. 在 Windows 解壓縮 ZIP。\n2. 開啟 CapCut 電腦版，新建專案。\n3. 匯入 videos 資料夾的影片，依 shot_01、shot_02 順序排列。\n4. 匯入 audio 資料夾的歌曲或配音（如有）。\n5. 可匯入 subtitles.srt（若有字幕；依 CapCut 版本操作）。\n6. shot_list.csv 是預計片長與順序，不代表素材實際片長。請在 CapCut 手動調整。\n7. references 資料夾是角色參考圖片，不會自動鎖定影片人物。\n8. 本素材包不是 CapCut 原生專案，不會自動建立時間軸。\n')]);music=el('musicFile').files[0]||music;if(music)files.push(['audio/'+safe(music.name),music]);refs=[...el('referenceFiles').files];refs.forEach((f,i)=>files.push(['references/'+pad(i+1)+'_'+safe(f.name),f]));const out=await zip(files),url=URL.createObjectURL(out),a=document.createElement('a');a.href=url;a.download=safe(el('name').value||'AI-Film-Studio')+'_CapCut素材包.zip';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);el('capcutStatus').textContent='ZIP 已產生。請到 Windows 下載資料夾解壓縮後匯入 CapCut。'}catch(e){el('capcutStatus').textContent='匯出失敗：'+e.message}finally{btn.disabled=false}};
+el('exportCapcut').onclick=async()=>{
+  const btn=el('exportCapcut');
+  try{
+    const ss=currentShots();
+    if(!ss.length){el('capcutStatus').textContent='請先建立分鏡';return;}
+    if(![...clips.values()].length){el('capcutStatus').textContent='請先為至少一個分鏡加入影片';return;}
+    btn.disabled=true;
+    el('capcutStatus').textContent='正在建立 ZIP 素材包…';
+    const files=[],rows=['shot,start_seconds,duration_seconds,video_file,camera,description'],srt=[];
+    let startSeconds=0,captionNumber=0;
+    for(let i=0;i<ss.length;i++){
+      const shot=ss[i],file=clips.get(i);
+      const path=file?'videos/shot_'+pad(i+1)+'.'+safe(file.name.split('.').pop()||'mp4'):'';
+      if(file)files.push([path,file]);
+      const cells=[i+1,startSeconds,shot.seconds,path,shot.camera,shot.text];
+      rows.push(cells.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','));
+      const caption=captions.get(i);
+      if(caption){
+        captionNumber++;
+        srt.push(captionNumber+'\\n'+time(startSeconds)+' --> '+time(startSeconds+Number(shot.seconds))+'\\n'+caption+'\\n');
+      }
+      startSeconds+=Number(shot.seconds)||0;
+    }
+    files.push(['shot_list.csv',txt('\\ufeff'+rows.join('\\r\\n'))]);
+    files.push(['subtitles.srt',txt('\\ufeff'+srt.join('\\n'))]);
+    files.push(['characters.txt',txt((characters||[]).join('\\n\\n'))]);
+    files.push(['script.txt',txt(el('script').value||'')]);
+    files.push(['README.txt',txt('Windows CapCut：解壓 ZIP，依 shot_01、shot_02 順序匯入 videos；可匯入 audio 與 subtitles.srt。分鏡秒數是規劃值，請在 CapCut 校正。此 ZIP 不是 CapCut 原生專案。')]);
+    const audio=el('musicFile').files[0];
+    if(audio)files.push(['audio/'+safe(audio.name),audio]);
+    [...el('referenceFiles').files].forEach((file,i)=>files.push(['references/'+pad(i+1)+'_'+safe(file.name),file]));
+    const blob=await zip(files),url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;
+    link.download=safe(el('name').value||'AI-Film-Studio')+'_CapCut素材包.zip';
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+    el('capcutStatus').textContent='ZIP 已產生，請在 Windows 解壓縮並匯入 CapCut。';
+  }catch(err){el('capcutStatus').textContent='匯出失敗：'+err.message;}
+  finally{btn.disabled=false;}
+};
 const observer=new MutationObserver(sync);observer.observe(el('shots'),{childList:true});el('mediaShot').addEventListener('pointerdown',()=>{if(el('mediaShot').options.length!==currentShots().length)sync()});document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()});el('save').addEventListener('click',()=>setTimeout(sync,0));el('projects').addEventListener('change',()=>setTimeout(clearMedia,0));el('new').addEventListener('click',()=>setTimeout(clearMedia,0));el('importFile').addEventListener('change',()=>setTimeout(clearMedia,100));sync();
 })();
 </script></body></html>
