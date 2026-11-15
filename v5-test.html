@@ -1,0 +1,78 @@
+
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Film Studio V5</title>
+<style>
+body{font-family:Arial,sans-serif;background:#141122;color:white;margin:0;padding:20px}
+main{max-width:700px;margin:auto}
+h1{color:#d3b8ff}
+.card{background:#242039;padding:18px;border-radius:14px;margin:16px 0}
+textarea,input{box-sizing:border-box;width:100%;padding:12px;margin:8px 0;background:#171429;color:white;border:1px solid #675b82;border-radius:8px;font:inherit}
+button{background:#aa88ff;color:#171125;border:0;padding:12px 18px;border-radius:9px;font-weight:bold;cursor:pointer}
+small{color:#c9bfd9}
+</style>
+</head>
+<body>
+<main>
+<h1>🎬 AI Film Studio V5</h1>
+<p>CapCut Windows 自動字幕產生器</p>
+
+<div class="card">
+<h2>影片名稱</h2>
+<input id="title" value="霓虹舊夢">
+
+<h2>每個鏡頭秒數</h2>
+<input id="duration" type="number" value="5" min="1" step="0.1">
+
+<h2>分鏡台詞</h2>
+<small>每行一個鏡頭，依照影片播放順序輸入。</small>
+<textarea id="lines" rows="8">……文遠？
+曼菁……真的是妳？
+七年了……你還記得我。
+這一次……我不會再錯過妳。</textarea>
+
+<button onclick="downloadSRT()">下載 SRT 字幕檔</button>
+<p id="status"></p>
+</div>
+</main>
+<script>
+function stamp(seconds){
+ const ms=Math.round(seconds*1000);
+ const h=Math.floor(ms/3600000);
+ const m=Math.floor(ms%3600000/60000);
+ const s=Math.floor(ms%60000/1000);
+ const x=ms%1000;
+ return [h,m,s].map(n=>String(n).padStart(2,'0')).join(':')
+ +','+String(x).padStart(3,'0');
+}
+function downloadSRT(){
+ const lines=document.getElementById('lines').value
+ .split('\n').map(s=>s.trim()).filter(Boolean);
+ const duration=Number(document.getElementById('duration').value);
+ if(!lines.length||!Number.isFinite(duration)||duration<=0){
+  document.getElementById('status').textContent='請輸入有效的台詞與秒數';
+  return;
+ }
+ const blocks=lines.map((line,i)=>{
+  const start=i*duration;
+  const end=(i+1)*duration;
+  return `${i+1}\n${stamp(start)} --> ${stamp(end)}\n${line}`;
+ });
+ const blob=new Blob(['\uFEFF'+blocks.join('\n\n')+'\n'],
+ {type:'text/plain;charset=utf-8'});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement('a');
+ a.href=url;
+ a.download=(document.getElementById('title').value.trim()||'subtitles')+'.srt';
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+ document.getElementById('status').textContent='✅ SRT 字幕檔已產生';
+}
+</script>
+</body>
+</html>
